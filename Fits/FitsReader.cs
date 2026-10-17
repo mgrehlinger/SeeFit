@@ -44,8 +44,7 @@ public static class FitsReader
             Width = width,
             Height = height,
             BitPix = bitPix,
-            PixelData = pixels,
-            Preview = FitsImage.CreatePreview(pixels, width, height)
+            PixelData = pixels
         };
     }
 

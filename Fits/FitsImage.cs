@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
 
@@ -10,40 +11,47 @@ public sealed class FitsImage
     public required int Height { get; init; }
     public required int BitPix { get; init; }
     public required double[,] PixelData { get; init; }
-    public required BitmapSource Preview { get; init; }
 
     public string? GetKeywordValue(string keyword) =>
         Keywords.FirstOrDefault(k =>
             string.Equals(k.Keyword, keyword, StringComparison.OrdinalIgnoreCase))?.Value;
 
-    public static BitmapSource CreatePreview(double[,] pixels, int width, int height)
+    public BayerPattern? HeaderBayerPattern =>
+        BayerPatternParser.TryParse(GetKeywordValue("BAYERPAT"));
+
+    public int HeaderBayerXOffset => GetIntKeyword("XBAYROFF", 0);
+
+    public int HeaderBayerYOffset => GetIntKeyword("YBAYROFF", 0);
+
+    public BitmapSource CreatePreview(bool debayer, BayerPattern pattern, ScnrOptions? scnr = null)
     {
-        var flat = new double[width * height];
-        var index = 0;
-        for (var y = 0; y < height; y++)
+        if (!debayer)
         {
-            for (var x = 0; x < width; x++)
-            {
-                flat[index++] = pixels[y, x];
-            }
+            return CreateGrayPreview(PixelData, Width, Height);
         }
 
-        Array.Sort(flat);
-        var lo = Percentile(flat, 0.01);
-        var hi = Percentile(flat, 0.99);
-        if (Math.Abs(hi - lo) < double.Epsilon)
+        var (r, g, b) = Debayer.Bilinear(
+            PixelData,
+            Width,
+            Height,
+            pattern,
+            HeaderBayerXOffset,
+            HeaderBayerYOffset);
+
+        if (scnr is { Enabled: true })
         {
-            lo = flat[0];
-            hi = flat[^1];
-            if (Math.Abs(hi - lo) < double.Epsilon)
-            {
-                hi = lo + 1;
-            }
+            Scnr.Apply(r, g, b, Width, Height, scnr);
         }
 
+        return CreateColorPreview(r, g, b, Width, Height);
+    }
+
+    public static BitmapSource CreateGrayPreview(double[,] pixels, int width, int height)
+    {
+        GetStretchLimits(pixels, width, height, out var lo, out var hi);
+        var range = hi - lo;
         var stride = width;
         var buffer = new byte[width * height];
-        var range = hi - lo;
 
         for (var y = 0; y < height; y++)
         {
@@ -71,6 +79,82 @@ public sealed class FitsImage
         return bitmap;
     }
 
+    public static BitmapSource CreateColorPreview(
+        double[,] red,
+        double[,] green,
+        double[,] blue,
+        int width,
+        int height)
+    {
+        GetStretchLimits(green, width, height, out var lo, out var hi);
+        var range = hi - lo;
+        var stride = width * 3;
+        var buffer = new byte[stride * height];
+
+        for (var y = 0; y < height; y++)
+        {
+            var srcY = height - 1 - y;
+            var row = y * stride;
+            for (var x = 0; x < width; x++)
+            {
+                var i = row + x * 3;
+                buffer[i] = ToByte(red[srcY, x], lo, range);
+                buffer[i + 1] = ToByte(green[srcY, x], lo, range);
+                buffer[i + 2] = ToByte(blue[srcY, x], lo, range);
+            }
+        }
+
+        var bitmap = BitmapSource.Create(
+            width,
+            height,
+            96,
+            96,
+            PixelFormats.Rgb24,
+            null,
+            buffer,
+            stride);
+
+        bitmap.Freeze();
+        return bitmap;
+    }
+
+    private static byte ToByte(double value, double lo, double range)
+    {
+        var normalized = Math.Clamp((value - lo) / range, 0, 1);
+        return (byte)Math.Round(normalized * 255.0);
+    }
+
+    private static void GetStretchLimits(
+        double[,] pixels,
+        int width,
+        int height,
+        out double lo,
+        out double hi)
+    {
+        var flat = new double[width * height];
+        var index = 0;
+        for (var y = 0; y < height; y++)
+        {
+            for (var x = 0; x < width; x++)
+            {
+                flat[index++] = pixels[y, x];
+            }
+        }
+
+        Array.Sort(flat);
+        lo = Percentile(flat, 0.01);
+        hi = Percentile(flat, 0.99);
+        if (Math.Abs(hi - lo) < double.Epsilon)
+        {
+            lo = flat[0];
+            hi = flat[^1];
+            if (Math.Abs(hi - lo) < double.Epsilon)
+            {
+                hi = lo + 1;
+            }
+        }
+    }
+
     private static double Percentile(double[] sorted, double percentile)
     {
         if (sorted.Length == 0)
@@ -88,5 +172,18 @@ public sealed class FitsImage
 
         var weight = position - lower;
         return sorted[lower] * (1 - weight) + sorted[upper] * weight;
+    }
+
+    private int GetIntKeyword(string name, int fallback)
+    {
+        var value = GetKeywordValue(name);
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return fallback;
+        }
+
+        return int.TryParse(value.Trim(), NumberStyles.Integer, CultureInfo.InvariantCulture, out var parsed)
+            ? parsed
+            : fallback;
     }
 }

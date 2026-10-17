@@ -38,6 +38,15 @@
                 <MenuItem Header="Zoom _Out" Click="ZoomOut_Click" InputGestureText="Ctrl+-"/>
                 <MenuItem Header="_Fit to Window" Click="ZoomFit_Click" InputGestureText="Ctrl+0"/>
                 <MenuItem Header="_Actual Size (100%)" Click="ZoomActual_Click" InputGestureText="Ctrl+1"/>
+                <Separator/>
+                <MenuItem x:Name="DebayerMenuItem"
+                          Header="_Debayer Color Image"
+                          IsCheckable="True"
+                          Click="Debayer_Click"/>
+                <MenuItem x:Name="ScnrMenuItem"
+                          Header="_SCNR (Chrominance Noise Reduction)"
+                          IsCheckable="True"
+                          Click="Scnr_Click"/>
             </MenuItem>
         </Menu>
 
@@ -63,6 +72,95 @@
                         ToolTip="Fit image to window"/>
                 <Button Content="100%" Padding="10,4" Margin="2" Click="ZoomActual_Click"
                         ToolTip="Show at actual size"/>
+                <Separator/>
+                <CheckBox x:Name="DebayerCheckBox"
+                          Content="Debayer"
+                          Margin="8,0,4,0"
+                          VerticalAlignment="Center"
+                          ToolTip="Convert Bayer CFA mosaic to color"
+                          Checked="Debayer_Changed"
+                          Unchecked="Debayer_Changed"/>
+                <TextBlock Text="Pattern:"
+                           Margin="8,0,4,0"
+                           VerticalAlignment="Center"/>
+                <ComboBox x:Name="BayerPatternCombo"
+                          Width="90"
+                          Margin="0,2"
+                          VerticalAlignment="Center"
+                          SelectedIndex="0"
+                          ToolTip="Bayer mosaic pattern (Auto uses BAYERPAT from the FITS header)"
+                          SelectionChanged="BayerPatternCombo_SelectionChanged">
+                    <ComboBoxItem Content="Auto"/>
+                    <ComboBoxItem Content="RGGB"/>
+                    <ComboBoxItem Content="BGGR"/>
+                    <ComboBoxItem Content="GRBG"/>
+                    <ComboBoxItem Content="GBRG"/>
+                </ComboBox>
+            </ToolBar>
+            <ToolBar Background="#E8E8E8" Band="1">
+                <CheckBox x:Name="ScnrCheckBox"
+                          Content="SCNR"
+                          Margin="8,0,4,0"
+                          VerticalAlignment="Center"
+                          ToolTip="Subtractive Chromatic Noise Reduction (requires Debayer)"
+                          Checked="Scnr_Changed"
+                          Unchecked="Scnr_Changed"/>
+                <TextBlock Text="Color:"
+                           Margin="8,0,4,0"
+                           VerticalAlignment="Center"/>
+                <ComboBox x:Name="ScnrColorCombo"
+                          Width="70"
+                          Margin="0,2"
+                          VerticalAlignment="Center"
+                          SelectedIndex="0"
+                          ToolTip="Channel to reduce"
+                          SelectionChanged="ScnrSettings_Changed">
+                    <ComboBoxItem Content="Green"/>
+                    <ComboBoxItem Content="Red"/>
+                    <ComboBoxItem Content="Blue"/>
+                </ComboBox>
+                <TextBlock Text="Method:"
+                           Margin="8,0,4,0"
+                           VerticalAlignment="Center"/>
+                <ComboBox x:Name="ScnrMethodCombo"
+                          Width="130"
+                          Margin="0,2"
+                          VerticalAlignment="Center"
+                          SelectedIndex="0"
+                          ToolTip="SCNR protection method"
+                          SelectionChanged="ScnrSettings_Changed">
+                    <ComboBoxItem Content="Average Neutral"/>
+                    <ComboBoxItem Content="Maximum Neutral"/>
+                    <ComboBoxItem Content="Minimum Neutral"/>
+                    <ComboBoxItem Content="Maximum Mask"/>
+                    <ComboBoxItem Content="Additive Mask"/>
+                </ComboBox>
+                <TextBlock Text="Amount:"
+                           Margin="8,0,4,0"
+                           VerticalAlignment="Center"/>
+                <Slider x:Name="ScnrAmountSlider"
+                        Width="120"
+                        Minimum="0"
+                        Maximum="1"
+                        Value="1"
+                        TickFrequency="0.05"
+                        IsSnapToTickEnabled="False"
+                        VerticalAlignment="Center"
+                        ToolTip="SCNR strength"
+                        ValueChanged="ScnrAmount_ValueChanged"/>
+                <TextBlock x:Name="ScnrAmountText"
+                           Text="100%"
+                           Width="36"
+                           Margin="4,0,0,0"
+                           VerticalAlignment="Center"/>
+                <CheckBox x:Name="ScnrPreserveLightnessCheckBox"
+                          Content="Preserve lightness"
+                          Margin="12,0,4,0"
+                          VerticalAlignment="Center"
+                          IsChecked="True"
+                          ToolTip="Keep pixel brightness after SCNR"
+                          Checked="Scnr_Changed"
+                          Unchecked="Scnr_Changed"/>
             </ToolBar>
         </ToolBarTray>
 

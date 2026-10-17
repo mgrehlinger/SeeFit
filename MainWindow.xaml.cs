@@ -1,5 +1,6 @@
 ﻿using System.IO;
 using System.Windows;
+using System.Windows.Controls;
 using System.Windows.Input;
 using Microsoft.Win32;
 using SeeFit.Fits;
@@ -14,16 +15,24 @@ public partial class MainWindow : Window
 
     private double _zoom = 1.0;
     private FitsImage? _currentImage;
+    private string? _currentPath;
     private bool _isPanning;
     private Point _panStart;
     private double _panOriginHorizontal;
     private double _panOriginVertical;
+    private bool _updatingDebayerUi;
+    private bool _updatingScnrUi;
 
     public MainWindow()
     {
         InitializeComponent();
         UpdateZoomUi();
+        UpdateProcessingControlsEnabled();
     }
+
+    private bool DebayerEnabled => DebayerCheckBox.IsChecked == true;
+
+    private bool ScnrEnabled => ScnrCheckBox.IsChecked == true;
 
     private void OpenFits_Click(object sender, RoutedEventArgs e) => OpenFitsFile();
 
@@ -44,6 +53,97 @@ public partial class MainWindow : Window
     private void ZoomOut_Executed(object sender, ExecutedRoutedEventArgs e) => ZoomBy(1.0 / ZoomStep);
 
     private void ZoomFit_Executed(object sender, ExecutedRoutedEventArgs e) => FitToWindow();
+
+    private void Debayer_Click(object sender, RoutedEventArgs e)
+    {
+        if (_updatingDebayerUi)
+        {
+            return;
+        }
+
+        _updatingDebayerUi = true;
+        DebayerCheckBox.IsChecked = DebayerMenuItem.IsChecked;
+        _updatingDebayerUi = false;
+        UpdateProcessingControlsEnabled();
+        RefreshPreview();
+    }
+
+    private void Debayer_Changed(object sender, RoutedEventArgs e)
+    {
+        if (_updatingDebayerUi)
+        {
+            return;
+        }
+
+        _updatingDebayerUi = true;
+        DebayerMenuItem.IsChecked = DebayerEnabled;
+        _updatingDebayerUi = false;
+        UpdateProcessingControlsEnabled();
+        RefreshPreview();
+    }
+
+    private void BayerPatternCombo_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (!IsLoaded || !DebayerEnabled)
+        {
+            return;
+        }
+
+        RefreshPreview();
+    }
+
+    private void Scnr_Click(object sender, RoutedEventArgs e)
+    {
+        if (_updatingScnrUi)
+        {
+            return;
+        }
+
+        _updatingScnrUi = true;
+        ScnrCheckBox.IsChecked = ScnrMenuItem.IsChecked;
+        _updatingScnrUi = false;
+        RefreshPreview();
+    }
+
+    private void Scnr_Changed(object sender, RoutedEventArgs e)
+    {
+        if (_updatingScnrUi || !IsLoaded)
+        {
+            return;
+        }
+
+        _updatingScnrUi = true;
+        ScnrMenuItem.IsChecked = ScnrEnabled;
+        _updatingScnrUi = false;
+        UpdateProcessingControlsEnabled();
+        RefreshPreview();
+    }
+
+    private void ScnrSettings_Changed(object sender, SelectionChangedEventArgs e)
+    {
+        if (!IsLoaded || !ScnrEnabled || !DebayerEnabled)
+        {
+            return;
+        }
+
+        RefreshPreview();
+    }
+
+    private void ScnrAmount_ValueChanged(object sender, RoutedPropertyChangedEventArgs<double> e)
+    {
+        if (!IsLoaded)
+        {
+            return;
+        }
+
+        ScnrAmountText.Text = $"{ScnrAmountSlider.Value * 100:0}%";
+        if (!ScnrEnabled || !DebayerEnabled)
+        {
+            return;
+        }
+
+        RefreshPreview();
+    }
 
     private void ImageScrollViewer_PreviewMouseWheel(object sender, MouseWheelEventArgs e)
     {
@@ -157,14 +257,123 @@ public partial class MainWindow : Window
     private void DisplayImage(FitsImage image, string path)
     {
         _currentImage = image;
-        FitsImageControl.Source = image.Preview;
+        _currentPath = path;
         KeywordsGrid.ItemsSource = image.Keywords;
         PlaceholderText.Visibility = Visibility.Collapsed;
-
+        UpdateProcessingControlsEnabled();
+        RefreshPreview();
         Dispatcher.BeginInvoke(FitToWindow, System.Windows.Threading.DispatcherPriority.Loaded);
+    }
+
+    private void RefreshPreview()
+    {
+        if (_currentImage is null)
+        {
+            return;
+        }
+
+        try
+        {
+            Mouse.OverrideCursor = Cursors.Wait;
+            var pattern = ResolveBayerPattern(_currentImage);
+            var scnr = BuildScnrOptions();
+            FitsImageControl.Source = _currentImage.CreatePreview(DebayerEnabled, pattern, scnr);
+            UpdateStatusText(pattern, scnr);
+        }
+        catch (Exception ex)
+        {
+            MessageBox.Show(
+                this,
+                $"Could not render image:\n\n{ex.Message}",
+                "SeeFit",
+                MessageBoxButton.OK,
+                MessageBoxImage.Error);
+        }
+        finally
+        {
+            Mouse.OverrideCursor = null;
+        }
+    }
+
+    private ScnrOptions BuildScnrOptions() => new()
+    {
+        Enabled = DebayerEnabled && ScnrEnabled,
+        Color = ScnrColorCombo.SelectedIndex switch
+        {
+            1 => ScnrColor.Red,
+            2 => ScnrColor.Blue,
+            _ => ScnrColor.Green
+        },
+        Method = ScnrMethodCombo.SelectedIndex switch
+        {
+            1 => ScnrMethod.MaximumNeutral,
+            2 => ScnrMethod.MinimumNeutral,
+            3 => ScnrMethod.MaximumMask,
+            4 => ScnrMethod.AdditiveMask,
+            _ => ScnrMethod.AverageNeutral
+        },
+        Amount = ScnrAmountSlider.Value,
+        PreserveLightness = ScnrPreserveLightnessCheckBox.IsChecked == true
+    };
+
+    private BayerPattern ResolveBayerPattern(FitsImage image)
+    {
+        if (BayerPatternCombo.SelectedIndex <= 0)
+        {
+            return image.HeaderBayerPattern ?? BayerPattern.Rggb;
+        }
+
+        return BayerPatternCombo.SelectedIndex switch
+        {
+            1 => BayerPattern.Rggb,
+            2 => BayerPattern.Bggr,
+            3 => BayerPattern.Grbg,
+            4 => BayerPattern.Gbrg,
+            _ => BayerPattern.Rggb
+        };
+    }
+
+    private void UpdateProcessingControlsEnabled()
+    {
+        var hasImage = _currentImage is not null;
+        DebayerCheckBox.IsEnabled = hasImage;
+        DebayerMenuItem.IsEnabled = hasImage;
+        BayerPatternCombo.IsEnabled = hasImage;
+
+        var scnrAvailable = hasImage && DebayerEnabled;
+        ScnrCheckBox.IsEnabled = scnrAvailable;
+        ScnrMenuItem.IsEnabled = scnrAvailable;
+        ScnrColorCombo.IsEnabled = scnrAvailable;
+        ScnrMethodCombo.IsEnabled = scnrAvailable;
+        ScnrAmountSlider.IsEnabled = scnrAvailable;
+        ScnrPreserveLightnessCheckBox.IsEnabled = scnrAvailable;
+
+        if (!scnrAvailable && ScnrEnabled)
+        {
+            _updatingScnrUi = true;
+            ScnrCheckBox.IsChecked = false;
+            ScnrMenuItem.IsChecked = false;
+            _updatingScnrUi = false;
+        }
+    }
+
+    private void UpdateStatusText(BayerPattern pattern, ScnrOptions scnr)
+    {
+        if (_currentImage is null || _currentPath is null)
+        {
+            return;
+        }
+
+        var debayerInfo = DebayerEnabled
+            ? $"  |  Debayer {BayerPatternParser.ToDisplayName(pattern)}"
+            : string.Empty;
+
+        var scnrInfo = scnr.Enabled
+            ? $"  |  SCNR {scnr.Color} {scnr.Amount * 100:0}%"
+            : string.Empty;
 
         StatusText.Text =
-            $"{Path.GetFileName(path)}  |  {image.Width}×{image.Height}  |  BITPIX={image.BitPix}  |  {image.Keywords.Count} keywords";
+            $"{Path.GetFileName(_currentPath)}  |  {_currentImage.Width}×{_currentImage.Height}  |  BITPIX={_currentImage.BitPix}  |  {_currentImage.Keywords.Count} keywords{debayerInfo}{scnrInfo}";
     }
 
     private void ZoomBy(double factor) => SetZoom(_zoom * factor);
