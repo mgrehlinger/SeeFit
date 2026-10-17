@@ -1,0 +1,16 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <UseWPF>true</UseWPF>
+    <RootNamespace>SeeFit</RootNamespace>
+    <AssemblyName>SeeFit</AssemblyName>
+    <ApplicationTitle>SeeFit</ApplicationTitle>
+    <Product>SeeFit</Product>
+    <Description>Astrophotography FITS image viewer</Description>
+  </PropertyGroup>
+
+</Project>
